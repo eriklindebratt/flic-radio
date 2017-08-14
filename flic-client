@@ -1,0 +1,147 @@
+#!/usr/bin/env node
+
+const { spawn } = require('child_process');
+
+const fliclib = require('./fliclib-linux-hci/clientlib/nodejs/fliclibNodeJs');
+const FlicClient = fliclib.FlicClient;
+const FlicConnectionChannel = fliclib.FlicConnectionChannel;
+const FlicScanner = fliclib.FlicScanner;
+
+const audioStreams = [{
+  name: 'P1',
+  url: 'http://sverigesradio.se/topsy/direkt/132.mp3',
+}, {
+  name: 'P2',
+  url: 'http://sverigesradio.se/topsy/direkt/163.mp3',
+}, {
+  name: 'P3',
+  url: 'http://sverigesradio.se/topsy/direkt/164.mp3'
+}];
+let currentAudioStreamIndex = 0
+
+let client = null;
+
+const initialize = () => {
+  console.log('initialize');
+
+  client = new FlicClient('localhost', 5551);
+
+  client.once('ready', () => {
+    console.log('Connected to daemon!');
+    client.getInfo((info) => {
+      info.bdAddrOfVerifiedButtons.forEach((bdAddr) => {
+        listenToButton(bdAddr);
+      });
+    });
+  });
+
+  client.on('bluetoothControllerStateChange', (state) => {
+    console.log('Bluetooth controller state change:', state);
+  });
+
+  client.on('newVerifiedButton', (bdAddr) => {
+    console.log('A new button was added:', bdAddr);
+    listenToButton(bdAddr);
+  });
+
+  client.on('error', (error) => {
+    console.log('Daemon connection error:', error);
+  });
+
+  client.on('close', (hadError) => {
+    console.log('Connection to daemon is now closed - hadError:', hadError);
+  });
+};
+
+const listenToButton = (bdAddr) => {
+  const cc = new FlicConnectionChannel(bdAddr);
+  client.addConnectionChannel(cc);
+
+  cc.on('buttonSingleOrDoubleClick', function(clickType) {
+    //console.log('buttonSingleOrDoubleClick:', clickType);
+
+    if (clickType === 'ButtonSingleClick') {
+      toggleAudioStream();
+    } else {
+      rotateAudioStreamUrl();
+    }
+  });
+
+  cc.on('connectionStatusChanged', (connectionStatus, disconnectReason) => {
+    console.log(`${bdAddr} ${connectionStatus}${connectionStatus == 'Disconnected' ? ` ${disconnectReason}` : ''}`);
+  });
+}
+
+const audioStreamIsRunning = false;
+let audioStreamProcess = null;
+
+/**
+ * @param {String} forcedCommand (Optional) "start" or "stop"
+ */
+const toggleAudioStream = (forcedCommand) => {
+  let shouldStart = null;
+  switch (forcedCommand) {
+    case 'start':
+      shouldStart = true;
+      break;
+    case 'stop':
+      shouldStart = false;
+      break;
+    default:
+      shouldStart = !audioStreamProcess;
+      break;
+  }
+
+  console.log(`toggleAudioStream - ${shouldStart ? 'start' : 'stop'}`);
+
+  if (!shouldStart) {
+    if (!audioStreamProcess) {
+      console.log('toggleAudioStream - no stream running?');
+      return;
+    }
+
+    audioStreamProcess.kill('SIGINT');
+    return;
+  }
+
+  if (audioStreamProcess) {
+    console.log('toggleAudioStream - stream already running?');
+
+    if (forcedCommand) {
+      audioStreamProcess.kill('SIGINT');
+    }
+
+    return;
+  }
+
+  audioStreamProcess = spawn('mplayer', [audioStreams[currentAudioStreamIndex].url]);
+  audioStreamProcess.stdout.on('data', (data) => {
+    console.log(`audioStreamProcess stdout: ${data}`);
+  });
+  audioStreamProcess.stderr.on('data', (data) => {
+    //console.log(`audioStreamProcess stderr: ${data}`);
+  });
+  audioStreamProcess.on('close', (code) => {
+    console.log(`audioStreamProcess exited with code ${code}`);
+    audioStreamProcess = null;
+  });
+};
+
+const rotateAudioStreamUrl = () => {
+  toggleAudioStream('stop');
+
+  if (++currentAudioStreamIndex >= audioStreams.length) {
+    currentAudioStreamIndex = 0;
+  }
+
+  // give user audial feedback about the name of the new audio stream
+  const debugCommand = audioStreams[currentAudioStreamIndex].name;
+  const debugCommandProcess = spawn('espeak', [`"${debugCommand}"`]);
+  debugCommandProcess.on('close', () => {
+    toggleAudioStream('start');
+  });
+};
+
+const delay = 3000;
+console.log(`\n---\nwaiting for ${delay}ms...`);
+setTimeout(initialize, delay);
