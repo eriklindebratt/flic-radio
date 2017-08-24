@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const { spawn } = require('child_process');
+const { exec } = require('shelljs');
 
 const fliclib = require('./fliclib-linux-hci/clientlib/nodejs/fliclibNodeJs');
 const FlicClient = fliclib.FlicClient;
@@ -20,6 +21,7 @@ const audioStreams = [{
 let currentAudioStreamIndex = 0
 
 let client = null;
+let buttonIsLongPressed = false;
 
 const initialize = () => {
   console.log('initialize');
@@ -57,14 +59,36 @@ const listenToButton = (bdAddr) => {
   const cc = new FlicConnectionChannel(bdAddr);
   client.addConnectionChannel(cc);
 
-  cc.on('buttonSingleOrDoubleClick', function(clickType) {
-    //console.log('buttonSingleOrDoubleClick:', clickType);
+  cc.on('buttonClickOrHold', (clickType) => {
+    if (buttonIsLongPressed) {
+      return;
+    }
+
+    if (clickType === 'ButtonHold') {
+      console.log('ButtonHold');
+      buttonIsLongPressed = true;
+      rebootSystem();
+    }
+  });
+
+  cc.on('buttonSingleOrDoubleClick', (clickType) => {
+    if (buttonIsLongPressed) {
+      return;
+    }
 
     if (clickType === 'ButtonSingleClick') {
+      console.log('ButtonSingleClick');
       toggleAudioStream();
     } else {
+      console.log('ButtonDoubleClick');
       rotateAudioStreamUrl();
     }
+  });
+
+  cc.on('buttonUpOrDown', (clickType) => {
+    setTimeout(() => {
+      buttonIsLongPressed = false;
+    }, 200);
   });
 
   cc.on('connectionStatusChanged', (connectionStatus, disconnectReason) => {
@@ -116,10 +140,10 @@ const toggleAudioStream = (forcedCommand) => {
 
   audioStreamProcess = spawn('mplayer', [audioStreams[currentAudioStreamIndex].url]);
   audioStreamProcess.stdout.on('data', (data) => {
-    console.log(`audioStreamProcess stdout: ${data}`);
+    console.log(`-----\naudioStreamProcess stdout:\n${data}`);
   });
   audioStreamProcess.stderr.on('data', (data) => {
-    //console.log(`audioStreamProcess stderr: ${data}`);
+    //console.log(`-----\naudioStreamProcess stderr:\n${data}`);
   });
   audioStreamProcess.on('close', (code) => {
     console.log(`audioStreamProcess exited with code ${code}`);
@@ -128,17 +152,37 @@ const toggleAudioStream = (forcedCommand) => {
 };
 
 const rotateAudioStreamUrl = () => {
+  console.log('rotateAudioStreamUrl');
+
   toggleAudioStream('stop');
 
   if (++currentAudioStreamIndex >= audioStreams.length) {
     currentAudioStreamIndex = 0;
   }
 
-  // give user audial feedback about the name of the new audio stream
+  // audial user feedback
   const debugCommand = audioStreams[currentAudioStreamIndex].name;
   const debugCommandProcess = spawn('espeak', [`"${debugCommand}"`]);
   debugCommandProcess.on('close', () => {
     toggleAudioStream('start');
+  });
+};
+
+const rebootSystem = () => {
+  console.log('rebootSystem');
+
+  // audial user feedback
+  let debugCommand = 'Rebooting';
+  let debugCommandProcess = spawn('espeak', [`"${debugCommand}"`]);
+  debugCommandProcess.on('close', () => {
+    const exitCode = exec('sudo shutdown -r now');
+    if (exitCode !== 0) {
+      console.log(`Failed to shut down (exit code was ${exitCode}`);
+
+      // audial user feedback
+      debugCommand = `Failed to shut down. Exit code was ${exitCode}`;
+      debugCommandProcess = spawn('espeak', [`"${debugCommand}"`]);
+    }
   });
 };
 

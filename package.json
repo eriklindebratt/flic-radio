@@ -1,0 +1,22 @@
+{
+  "name": "flic-radio",
+  "version": "0.0.1",
+  "description": "> Internet radio controlled using the Flic button. Suitable to run on e.g. a Raspberry Pi.",
+  "main": "flic-client",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eriklindebratt/flic-radio.git"
+  },
+  "author": "Erik Lindebratt",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/eriklindebratt/flic-radio/issues"
+  },
+  "homepage": "https://github.com/eriklindebratt/flic-radio#readme",
+  "dependencies": {
+    "shelljs": "^0.7.8"
+  }
+}
